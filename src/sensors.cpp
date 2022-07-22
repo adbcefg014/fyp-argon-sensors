@@ -51,29 +51,32 @@ void setup() {
 	Wire.begin();
 	pinMode(D7,OUTPUT);
 	Serial.begin(9600);
-	while (!bh.begin(BH1750::ONE_TIME_HIGH_RES_MODE))
+
+	while (!bh.begin())
 	{
 		delay(500);
 		Serial.println("Trying to connect BH1750 Lux Sensor");
 	}
+	bh.set_sensor_mode(BH1750::continuous_low_res);
+
 	while (!bme.begin())
 	{
 		delay(500);
 		Serial.println("Trying to connect BME280 PTH Sensor");
 	}
+
 	while (!airSensor.begin())
 	{
 		delay(500);
 		Serial.println("Trying to connect SCD30 CO2 Sensor");
 	}
+
 	aqi.begin_I2C();
+
 	Serial.println("Zio Qwiic Loudness Sensor Master Awake");
 	testForConnectivity();
-	uv.begin(VEML6070_1_T);
 
-	// Adjust light sensor calibration
-	calibrate_bh();
-	bh.configure(BH1750::ONE_TIME_LOW_RES_MODE);
+	uv.begin(VEML6070_1_T);
 }
 
 
@@ -87,11 +90,8 @@ void loop() {
 	Serial.println(Time.format(time, TIME_FORMAT_DEFAULT));
 
 	//LUX Sensor (BH1750); continuous mode takes measurements non-stop, one time mode takes a measurement then sleep
-	while (!bh.measurementReady(true)) {
-		delay(20);
-	}
-	Serial.println(String::format("Light level: %.1f lux", bh.readLightLevel()));
-	bh.configure(BH1750::ONE_TIME_LOW_RES_MODE);
+	bh.make_forced_measurement();
+	Serial.println(String::format("Light level: %.1f lux", bh.get_light_level()));
 
 	//CO2 Sensor (SCD30)
 	if (airSensor.dataAvailable())
@@ -183,56 +183,4 @@ void testForConnectivity()
 		Serial.println("Check connections. No slave attached.");
 		while (1);
 	}
-}
-
-// Calibration of BH1750 sensor at boot up
-void calibrate_bh() 
-{
-	while (true)
-	{
-		if (bh.measurementReady(true)) {
-			float lux = bh.readLightLevel();
-
-			if (lux < 0) {
-				Serial.println(F("Error condition detected in BH1750"));
-			} else {
-				if (lux > 40000.0) {
-					// reduce measurement time - needed in direct sun light
-					if (bh.setMTreg(32)) {
-						Serial.println(
-								F("Setting MTReg to low value for high light environment"));
-					} else {
-						Serial.println(
-								F("Error setting MTReg to low value for high light environment"));
-					}
-				} else {
-					if (lux > 10.0) {
-						// typical light environment
-						if (bh.setMTreg(69)) {
-							Serial.println(F(
-									"Setting MTReg to default value for normal light environment"));
-						} else {
-							Serial.println(F("Error setting MTReg to default value for normal "
-															"light environment"));
-						}
-					} else {
-						if (lux <= 10.0) {
-							// very low light environment
-							if (bh.setMTreg(138)) {
-								Serial.println(
-										F("Setting MTReg to high value for low light environment"));
-							} else {
-								Serial.println(F("Error setting MTReg to high value for low "
-																"light environment"));
-							}
-						}
-					}
-				}
-			}
-			Serial.println(F("--------------------------------------"));
-			return;
-		}
-		delay(5000);
-	}
-	return;
 }
