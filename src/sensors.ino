@@ -123,10 +123,11 @@ void loop() {
 	// UV Sensor (VEML 6070)
 	Serial.print("UV light level: "); Serial.println(uv.readUV());
 
+	//Pressure, Temperature, Humidity Sensor (BME280)
+	
 	//float pressure = bme.readPressure()/100.0F;
 	//float temp = bme.readTemperature();
 	//float humid = bme.readHumidity();
-	//Pressure, Temperature, Humidity Sensor (BME280)
 	//Serial.println(String::format("Pressure: %.2f mbar | Temperature: %.2f *C | Humidity %.2f %",pressure, temp, humid));
 
 	Serial.println(String::format("Pressure: %.2f mbar",(bme.readPressure()/100.0F)));

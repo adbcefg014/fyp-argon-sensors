@@ -37,7 +37,7 @@
   ],
   "particle.targetPlatform": "argon",
   "particle.firmwareVersion": "3.3.0",
-  "particle.targetDevice": "Argon_1",
+  "particle.targetDevice": "Argon_4",
   "cmake.configureOnOpen": true,
   "cSpell.words": [
     "Adafruit"
