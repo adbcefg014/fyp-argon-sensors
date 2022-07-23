@@ -31,9 +31,10 @@ Adafruit_VEML6070 uv = Adafruit_VEML6070();
 const byte qwiicAddress = 0x30;
 uint16_t ADC_VALUE = 0;
 
+void initializeSensors();
 void testForConnectivity();
-void get_value();
-void get_sensor_readings();
+void getValue();
+void getSensorReadings();
 
 
 // setup() runs once, when the device is first turned on.
@@ -44,6 +45,29 @@ void setup() {
 	pinMode(D7,OUTPUT);
 	Serial.begin(9600);
 
+	initializeSensors();
+
+	
+}
+
+
+// loop() runs over and over again, as quickly as it can execute.
+void loop() {
+	// The core of your code will likely live here.
+	digitalWrite(D7,HIGH);
+	Serial.println("==================================================================");
+	time_t time = Time.now();	// UTC time
+	Serial.println(Time.format(time, TIME_FORMAT_DEFAULT));
+
+	getSensorReadings();
+	digitalWrite(D7,LOW);
+
+	delay(30000);
+}
+
+
+void initializeSensors()
+{
 	while (!bh.begin())
 	{
 		delay(500);
@@ -71,24 +95,7 @@ void setup() {
 	uv.begin(VEML6070_1_T);
 }
 
-
-// loop() runs over and over again, as quickly as it can execute.
-void loop() {
-	// The core of your code will likely live here.
-	digitalWrite(D7,HIGH);
-	Serial.println("==================================================================");
-	time_t time = Time.now();	// UTC time
-	Serial.println(Time.format(time, TIME_FORMAT_DEFAULT));
-
-	get_sensor_readings();
-	digitalWrite(D7,LOW);
-
-	delay(30000);
-}
-
-
-
-void get_value()
+void getValue()
 {
 	Wire.beginTransmission(qwiicAddress);
 	Wire.write(COMMAND_GET_VALUE); // command for status
@@ -127,7 +134,8 @@ void testForConnectivity()
 }
 
 
-void get_sensor_readings() {
+void getSensorReadings()
+{
 	//LUX Sensor (BH1750); continuous mode takes measurements non-stop, one time mode takes a measurement then sleep
 	bh.make_forced_measurement();
 	Serial.println(String::format("Light level: %.1f lux", bh.get_light_level()));
@@ -165,7 +173,7 @@ void get_sensor_readings() {
 	//Serial.println(String::format("Environmental PM -- PM1.0: %.2f| PM2.5: %.2f| PM10.0: %.2f", pm10e, pm25e, pm100e));
 
 	//Peak Sound Sensor (SPARKFUN SEN-15892)
-	get_value();
+	getValue();
 
 	// UV Sensor (VEML 6070)
 	Serial.print("UV light level: "); Serial.println(uv.readUV());
