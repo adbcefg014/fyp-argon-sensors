@@ -10,7 +10,7 @@
 #include <Particle.h>
 #include <Arduino.h>
 #include <Adafruit_Sensor.h>
-#include <BH1750.h>			// https://github.com/claws/BH1750
+#include <BH1750.h>	
 #include <Adafruit_BME280.h>
 #include <SparkFun_SCD30_Arduino_Library.h>
 #include <Adafruit_PM25AQI.h>
@@ -33,7 +33,7 @@ uint16_t ADC_VALUE = 0;
 
 void testForConnectivity();
 void get_value();
-void calibrate_bh();
+void get_sensor_readings();
 
 
 // setup() runs once, when the device is first turned on.
@@ -77,10 +77,57 @@ void loop() {
 	// The core of your code will likely live here.
 	digitalWrite(D7,HIGH);
 	Serial.println("==================================================================");
-	time_t time = Time.now();
-	//time_t time = Time.zone(+8);
+	time_t time = Time.now();	// UTC time
 	Serial.println(Time.format(time, TIME_FORMAT_DEFAULT));
 
+	get_sensor_readings();
+	digitalWrite(D7,LOW);
+
+	delay(30000);
+}
+
+
+
+void get_value()
+{
+	Wire.beginTransmission(qwiicAddress);
+	Wire.write(COMMAND_GET_VALUE); // command for status
+	Wire.endTransmission(); // stop transmitting //this looks like it was essential.
+	Wire.requestFrom(qwiicAddress, 2); // request 1 bytes from slave device qwiicAddress
+
+	while (Wire.available())
+	{ // slave may send less than requested
+		uint8_t ADC_VALUE_L = Wire.read();
+		// Serial.print("ADC_VALUE_L: ");
+		// Serial.println(ADC_VALUE_L,DEC);
+		uint8_t ADC_VALUE_H = Wire.read();
+		// Serial.print("ADC_VALUE_H: ");
+		// Serial.println(ADC_VALUE_H,DEC);
+		ADC_VALUE=ADC_VALUE_H;
+		ADC_VALUE<<=8;
+		ADC_VALUE|=ADC_VALUE_L;
+		float dB = (ADC_VALUE+83.2073) / 11.003; //emprical formula to convert ADC value to dB
+		//Serial.print("ADC_VALUE: ");
+		//Serial.println(ADC_VALUE,DEC);
+		Serial.printlnf("ADC VALUE: %u, dB: %.2f",ADC_VALUE,dB);
+	}
+}
+
+// testForConnectivity() checks for an ACK from an Sensor. If no ACK
+// program freezes and notifies user.
+void testForConnectivity()
+{
+	Wire.beginTransmission(qwiicAddress);
+	//check here for an ACK from the slave, if no ACK don't allow change?
+	if (Wire.endTransmission() != 0)
+	{
+		Serial.println("Check connections. No slave attached.");
+		while (1);
+	}
+}
+
+
+void get_sensor_readings() {
 	//LUX Sensor (BH1750); continuous mode takes measurements non-stop, one time mode takes a measurement then sleep
 	bh.make_forced_measurement();
 	Serial.println(String::format("Light level: %.1f lux", bh.get_light_level()));
@@ -135,45 +182,4 @@ void loop() {
 	Serial.print(bme.readHumidity());
 	Serial.println(" %");
 	Serial.println(String::format("Temperature: %.2f *C",bme.readTemperature()));
-	digitalWrite(D7,LOW);
-
-	delay(30000);
-}
-
-void get_value()
-{
-	Wire.beginTransmission(qwiicAddress);
-	Wire.write(COMMAND_GET_VALUE); // command for status
-	Wire.endTransmission(); // stop transmitting //this looks like it was essential.
-	Wire.requestFrom(qwiicAddress, 2); // request 1 bytes from slave device qwiicAddress
-
-	while (Wire.available())
-	{ // slave may send less than requested
-		uint8_t ADC_VALUE_L = Wire.read();
-		// Serial.print("ADC_VALUE_L: ");
-		// Serial.println(ADC_VALUE_L,DEC);
-		uint8_t ADC_VALUE_H = Wire.read();
-		// Serial.print("ADC_VALUE_H: ");
-		// Serial.println(ADC_VALUE_H,DEC);
-		ADC_VALUE=ADC_VALUE_H;
-		ADC_VALUE<<=8;
-		ADC_VALUE|=ADC_VALUE_L;
-		float dB = (ADC_VALUE+83.2073) / 11.003; //emprical formula to convert ADC value to dB
-		//Serial.print("ADC_VALUE: ");
-		//Serial.println(ADC_VALUE,DEC);
-		Serial.printlnf("ADC VALUE: %u, dB: %.2f",ADC_VALUE,dB);
-	}
-}
-
-// testForConnectivity() checks for an ACK from an Sensor. If no ACK
-// program freezes and notifies user.
-void testForConnectivity()
-{
-	Wire.beginTransmission(qwiicAddress);
-	//check here for an ACK from the slave, if no ACK don't allow change?
-	if (Wire.endTransmission() != 0)
-	{
-		Serial.println("Check connections. No slave attached.");
-		while (1);
-	}
 }
