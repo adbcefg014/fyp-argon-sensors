@@ -5,9 +5,10 @@
 #include <Adafruit_Sensor.h>
 #include <BH1750.h>	
 #include <Adafruit_BME280.h>
-#include <SparkFun_SCD30_Arduino_Library.h>	// https://github.com/sparkfun/SparkFun_SCD30_Arduino_Library
+#include <SparkFun_SCD30_Arduino_Library.h>
 #include <Adafruit_PM25AQI.h>
 #include <Adafruit_VEML6070.h>
+#include <ArduinoJson.h>
 
 //SYSTEM_MODE(MANUAL);
 //SYSTEM_THREAD (ENABLED);
@@ -23,12 +24,12 @@ Adafruit_VEML6070 uv = Adafruit_VEML6070();
 #define COMMAND_NOTHING_NEW 0x99
 const byte qwiicAddress = 0x30;
 uint16_t ADC_VALUE = 0;
+float dBnumber = 0.0;
 
 void initializeSensors();
-void testForConnectivity();
-void getValue();
-void getSensorReadings();
-
+String getSensorReadings();
+void qwiicTestForConnectivity();
+void qwiicGetValue();
 
 // setup() runs once, when the device is first turned on.
 void setup() {
@@ -45,18 +46,18 @@ void setup() {
 // loop() runs over and over again, as quickly as it can execute.
 void loop() {
 	// The core of your code will likely live here.
-	digitalWrite(D7,HIGH);
-	Serial.println("==================================================================");
-	time_t time = Time.now();	// UTC time
-	Serial.println(Time.format(time, TIME_FORMAT_DEFAULT));
+	if (Particle.connected() == false) {
+		Particle.connect();
+	}
 
-	getSensorReadings();
+	digitalWrite(D7,HIGH);
+	String sensorData = getSensorReadings();
+	Particle.publish("sensor-reading", sensorData);
 	digitalWrite(D7,LOW);
 
-	// SystemSleepConfiguration sleepConfig;
-	// sleepConfig.mode(SystemSleepMode::ULTRA_LOW_POWER).duration(30s);
-	// System.sleep(sleepConfig);
-	delay(30s);
+	SystemSleepConfiguration sleepConfig;
+	sleepConfig.mode(SystemSleepMode::ULTRA_LOW_POWER).duration(1min);
+	System.sleep(sleepConfig);
 }
 
 
@@ -87,71 +88,90 @@ void initializeSensors()
 	aqi.begin_I2C();	// Particulate sensor PM2.5
 
 	Serial.println("Zio Qwiic Loudness Sensor Master Awake");
-	testForConnectivity();
+	qwiicTestForConnectivity();
 
 	uv.begin(VEML6070_1_T);
 }
 
-void getSensorReadings()
+String getSensorReadings()
 {
-	// LUX Sensor (BH1750)
+	/*
+	Planned JSON Structure:
+	{
+		"deviceID": xxxxxxx
+		"sensor1":
+			{
+				"Measurement1": Value1
+				"Measurement2": Value2
+			}
+	}
+	*/
+
+	// Preparations for JSON string pointer
+	char buf[400];
+	memset(buf, 0, sizeof(buf));
+	JSONBufferWriter writer(buf, sizeof(buf) - 1);
+	writer.beginObject();
+
+	// Device ID as 1st data entry
+	writer.name("DeviceID").value(System.deviceID());
+
+	// DateTime data entry
+	writer.name("DateTime").value(Time.now());
+
+	// LUX Sensor (BH1750), decimal precision to .1
 	bh.make_forced_measurement();
-	Serial.println(String::format("Light level: %.1f lux", bh.get_light_level()));
+	float lux = (int)(bh.get_light_level() * 10 + 0.5);	
+		// + 0.5 for rounding off number
+	lux = (float)lux / 100;
+
+	writer.name("BH1750");
+	writer.beginObject();
+	writer.name("Light level(lux)").value(lux);
+	writer.endObject();
 
 	// CO2 Sensor (SCD30)
 	if (airSensor.dataAvailable())
 	{
-		Serial.print("CO2(ppm): ");
-		Serial.print(airSensor.getCO2());
-		Serial.print(" Temperature(*C): ");
-		Serial.print(airSensor.getTemperature(), 1);
-		Serial.print(" Humidity(%): ");
-		Serial.print(airSensor.getHumidity(), 1);
-		Serial.println();
+		writer.name("SCD30");
+		writer.beginObject();
+		writer.name("CO2(ppm)").value(airSensor.getCO2());
+		writer.name("Temperature(*C)").value(airSensor.getTemperature());
+		writer.name("Humidity(%)").value(airSensor.getHumidity());
+		writer.endObject();
 	}
-	else
-		Serial.println("SCD30 No data");
 	
 	// Particulate Sensor (PMSA003I)
 	PM25_AQI_Data data;
-	if (!aqi.read(&data))
-	{
-		Serial.println("Could not read from AQI");
-		delay(5000); // try again in a bit!
-		return;
-	}
 	float pm10s = data.pm10_standard;
 	float pm25s = data.pm25_standard;
 	float pm100s = data.pm100_standard;
-	// float pm10e = data.pm10_env;
-	// float pm25e = data.pm25_env;
-	// float pm100e = data.pm100_env;
 
-	Serial.println(String::format("Standard PM -- PM1.0: %.2f | PM2.5: %.2f | PM10.0: %.2f", pm10s, pm25s, pm100s));
-	// Serial.println(String::format("Environmental PM -- PM1.0: %.2f| PM2.5: %.2f| PM10.0: %.2f", pm10e, pm25e, pm100e));
+	writer.name("PMSA003I");
+	writer.beginObject();
+	
+	writer.endObject();
 
 	// Peak Sound Sensor (SPARKFUN SEN-15892)
-	getValue();
+	dBnumber = 0.0;
+	qwiicGetValue();
+	sensorData += String::format(",'Sound-dB':%.2f", dBnumber);
 
 	// UV Sensor (VEML 6070)
-	Serial.print("UV light level: "); Serial.println(uv.readUV());
+	sensorData += String::format(",'UV':%f", uv.readUV());
 
-	// Pressure, Temperature, Humidity Sensor (BME280)
-	
-	// float pressure = bme.readPressure()/100.0F;
-	// float temp = bme.readTemperature();
-	// float humid = bme.readHumidity();
-	// Serial.println(String::format("Pressure: %.2f mbar | Temperature: %.2f *C | Humidity %.2f %",pressure, temp, humid));
+	sensorData += String::format(",'Pressure-mbar':%.2f,'Humidity-percent':%.2f,'Temp-C':%.2f", 
+		bme.readPressure()/100.0F, bme.readHumidity(), bme.readTemperature());
 
-	Serial.println(String::format("Pressure: %.2f mbar",(bme.readPressure()/100.0F)));
-	Serial.print("Humidity: ");
-	Serial.print(bme.readHumidity());
-	Serial.println(" %");
-	Serial.println(String::format("Temperature: %.2f *C",bme.readTemperature()));
+
+	// Null terminator for end of JSON string
+	writer.endObject();
+	writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+	return sensorData;
 }
 
 
-void getValue()
+void qwiicGetValue()
 {
 	Wire.beginTransmission(qwiicAddress);
 	Wire.write(COMMAND_GET_VALUE); // command for status
@@ -161,24 +181,17 @@ void getValue()
 	while (Wire.available())
 	{ // slave may send less than requested
 		uint8_t ADC_VALUE_L = Wire.read();
-		// Serial.print("ADC_VALUE_L: ");
-		// Serial.println(ADC_VALUE_L,DEC);
 		uint8_t ADC_VALUE_H = Wire.read();
-		// Serial.print("ADC_VALUE_H: ");
-		// Serial.println(ADC_VALUE_H,DEC);
 		ADC_VALUE=ADC_VALUE_H;
 		ADC_VALUE<<=8;
 		ADC_VALUE|=ADC_VALUE_L;
-		float dB = (ADC_VALUE+83.2073) / 11.003; //emprical formula to convert ADC value to dB
-		//Serial.print("ADC_VALUE: ");
-		//Serial.println(ADC_VALUE,DEC);
-		Serial.printlnf("ADC VALUE: %u, dB: %.2f",ADC_VALUE,dB);
+		dBnumber = (ADC_VALUE+83.2073) / 11.003; //emprical formula to convert ADC value to dB
 	}
 }
 
-// testForConnectivity() checks for an ACK from an Sensor. If no ACK
+// qwiicTestForConnectivity() checks for an ACK from an Sensor. If no ACK
 // program freezes and notifies user.
-void testForConnectivity()
+void qwiicTestForConnectivity()
 {
 	Wire.beginTransmission(qwiicAddress);
 	//check here for an ACK from the slave, if no ACK don't allow change?

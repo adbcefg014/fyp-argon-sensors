@@ -13,13 +13,14 @@
 #include <SparkFun_SCD30_Arduino_Library.h>	// https://github.com/sparkfun/SparkFun_SCD30_Arduino_Library
 #include <Adafruit_PM25AQI.h>
 #include <Adafruit_VEML6070.h>
+#include <ArduinoJson.h>
 
 //SYSTEM_MODE(MANUAL);
 //SYSTEM_THREAD (ENABLED);
 
 void setup();
 void loop();
-#line 15 "d:/JSN/Desktop/repos/c53-iot/sensors/src/sensors.ino"
+#line 16 "d:/JSN/Desktop/repos/c53-iot/sensors/src/sensors.ino"
 BH1750 bh;
 #define SEALEVELPRESSURE_HPA (1013.25)
 #define BME_ADDRESS 0x77
@@ -35,8 +36,8 @@ uint16_t ADC_VALUE = 0;
 void initializeSensors();
 void testForConnectivity();
 void getValue();
-void getSensorReadings();
-
+String getSensorReadings();
+float dBnumber;
 
 // setup() runs once, when the device is first turned on.
 void setup() {
@@ -53,18 +54,18 @@ void setup() {
 // loop() runs over and over again, as quickly as it can execute.
 void loop() {
 	// The core of your code will likely live here.
-	digitalWrite(D7,HIGH);
-	Serial.println("==================================================================");
-	time_t time = Time.now();	// UTC time
-	Serial.println(Time.format(time, TIME_FORMAT_DEFAULT));
+	if (Particle.connected() == false) {
+		Particle.connect();
+	}
 
-	getSensorReadings();
+	digitalWrite(D7,HIGH);
+	String sensorData = getSensorReadings();
+	Particle.publish("sensor-reading", sensorData);
 	digitalWrite(D7,LOW);
 
-	// SystemSleepConfiguration sleepConfig;
-	// sleepConfig.mode(SystemSleepMode::ULTRA_LOW_POWER).duration(30s);
-	// System.sleep(sleepConfig);
-	delay(30s);
+	SystemSleepConfiguration sleepConfig;
+	sleepConfig.mode(SystemSleepMode::ULTRA_LOW_POWER).duration(1min);
+	System.sleep(sleepConfig);
 }
 
 
@@ -91,7 +92,6 @@ void initializeSensors()
 		Serial.println("Trying to connect SCD30 CO2 Sensor");
 	}
 	airSensor.setMeasurementInterval(2);
-	airSensor.beginMeasuring();
 
 	aqi.begin_I2C();	// Particulate sensor PM2.5
 
@@ -101,62 +101,42 @@ void initializeSensors()
 	uv.begin(VEML6070_1_T);
 }
 
-void getSensorReadings()
+String getSensorReadings()
 {
+	String sensorData = "{\"DateTime\"\:";
+	sensorData += String(Time.now());
 	// LUX Sensor (BH1750)
 	bh.make_forced_measurement();
-	Serial.println(String::format("Light level: %.1f lux", bh.get_light_level()));
+	sensorData += String::format("'Light-lux':%.1f", bh.get_light_level());
 
 	// CO2 Sensor (SCD30)
 	if (airSensor.dataAvailable())
 	{
-		Serial.print("CO2(ppm): ");
-		Serial.print(airSensor.getCO2());
-		Serial.print(" Temperature(*C): ");
-		Serial.print(airSensor.getTemperature(), 1);
-		Serial.print(" Humidity(%): ");
-		Serial.print(airSensor.getHumidity(), 1);
-		Serial.println();
+		sensorData += String::format(",'CO2-ppm':{},'scd30Temp-C':{},'scd30Humidity-percent':{}", 
+			airSensor.getCO2(), airSensor.getTemperature(), airSensor.getHumidity());
 	}
 	else
-		Serial.println("SCD30 No data");
+		sensorData += ",'scd30 no data'";
 	
 	// Particulate Sensor (PMSA003I)
 	PM25_AQI_Data data;
-	if (!aqi.read(&data))
-	{
-		Serial.println("Could not read from AQI");
-		delay(5000); // try again in a bit!
-		return;
-	}
 	float pm10s = data.pm10_standard;
 	float pm25s = data.pm25_standard;
 	float pm100s = data.pm100_standard;
-	// float pm10e = data.pm10_env;
-	// float pm25e = data.pm25_env;
-	// float pm100e = data.pm100_env;
 
-	Serial.println(String::format("Standard PM -- PM1.0: %.2f | PM2.5: %.2f | PM10.0: %.2f", pm10s, pm25s, pm100s));
-	// Serial.println(String::format("Environmental PM -- PM1.0: %.2f| PM2.5: %.2f| PM10.0: %.2f", pm10e, pm25e, pm100e));
+	sensorData += String::format(",'PM1.0':{},'PM2.5':{},'PM10':{}", pm10s, pm25s, pm100s);
 
 	// Peak Sound Sensor (SPARKFUN SEN-15892)
 	getValue();
+	sensorData += String::format(",'Sound-dB':%.2f", dBnumber);
 
 	// UV Sensor (VEML 6070)
-	Serial.print("UV light level: "); Serial.println(uv.readUV());
+	sensorData += String::format(",'UV':{}", uv.readUV());
 
-	// Pressure, Temperature, Humidity Sensor (BME280)
-	
-	// float pressure = bme.readPressure()/100.0F;
-	// float temp = bme.readTemperature();
-	// float humid = bme.readHumidity();
-	// Serial.println(String::format("Pressure: %.2f mbar | Temperature: %.2f *C | Humidity %.2f %",pressure, temp, humid));
+	sensorData += String::format(",'Pressure-mbar':%.2f,'Humidity-percent':%.2f,'Temp-C':%.2f", 
+		bme.readPressure()/100.0F, bme.readHumidity(), bme.readTemperature());
 
-	Serial.println(String::format("Pressure: %.2f mbar",(bme.readPressure()/100.0F)));
-	Serial.print("Humidity: ");
-	Serial.print(bme.readHumidity());
-	Serial.println(" %");
-	Serial.println(String::format("Temperature: %.2f *C",bme.readTemperature()));
+	return sensorData;
 }
 
 
@@ -170,18 +150,11 @@ void getValue()
 	while (Wire.available())
 	{ // slave may send less than requested
 		uint8_t ADC_VALUE_L = Wire.read();
-		// Serial.print("ADC_VALUE_L: ");
-		// Serial.println(ADC_VALUE_L,DEC);
 		uint8_t ADC_VALUE_H = Wire.read();
-		// Serial.print("ADC_VALUE_H: ");
-		// Serial.println(ADC_VALUE_H,DEC);
 		ADC_VALUE=ADC_VALUE_H;
 		ADC_VALUE<<=8;
 		ADC_VALUE|=ADC_VALUE_L;
-		float dB = (ADC_VALUE+83.2073) / 11.003; //emprical formula to convert ADC value to dB
-		//Serial.print("ADC_VALUE: ");
-		//Serial.println(ADC_VALUE,DEC);
-		Serial.printlnf("ADC VALUE: %u, dB: %.2f",ADC_VALUE,dB);
+		dBnumber = (ADC_VALUE+83.2073) / 11.003; //emprical formula to convert ADC value to dB
 	}
 }
 
