@@ -91,6 +91,7 @@ void initializeSensors()
 		Serial.println("Trying to connect SCD30 CO2 Sensor");
 	}
 	airSensor.setMeasurementInterval(2);
+	airSensor.beginMeasuring();
 
 	aqi.begin_I2C();	// Particulate sensor PM2.5
 

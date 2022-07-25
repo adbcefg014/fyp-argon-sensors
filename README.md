@@ -1,6 +1,9 @@
 # sensors
 
-A Particle project named sensors
+NTU FYP project C177 Wireless Sensor Network
+
+TODO : 
+troubleshoot SCD sensor: No Data
 
 ## Welcome to your project!
 
