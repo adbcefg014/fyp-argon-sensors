@@ -3,13 +3,6 @@
 /******************************************************/
 
 #line 1 "d:/JSN/Desktop/repos/c53-iot/sensors/src/sensors.ino"
-/*
- * Project sensors
- * Description:
- * Author:
- * Date:
- */
-
 // Code for all one complete sensor node
 #include <Wire.h>
 #include <Particle.h>
@@ -17,7 +10,7 @@
 #include <Adafruit_Sensor.h>
 #include <BH1750.h>	
 #include <Adafruit_BME280.h>
-#include <SparkFun_SCD30_Arduino_Library.h>
+#include <SparkFun_SCD30_Arduino_Library.h>	// https://github.com/sparkfun/SparkFun_SCD30_Arduino_Library
 #include <Adafruit_PM25AQI.h>
 #include <Adafruit_VEML6070.h>
 
@@ -26,7 +19,7 @@
 
 void setup();
 void loop();
-#line 22 "d:/JSN/Desktop/repos/c53-iot/sensors/src/sensors.ino"
+#line 15 "d:/JSN/Desktop/repos/c53-iot/sensors/src/sensors.ino"
 BH1750 bh;
 #define SEALEVELPRESSURE_HPA (1013.25)
 #define BME_ADDRESS 0x77
@@ -54,8 +47,6 @@ void setup() {
 	Serial.begin(9600);
 
 	initializeSensors();
-
-	
 }
 
 
@@ -70,9 +61,14 @@ void loop() {
 	getSensorReadings();
 	digitalWrite(D7,LOW);
 
-	delay(30000);
+	// SystemSleepConfiguration sleepConfig;
+	// sleepConfig.mode(SystemSleepMode::ULTRA_LOW_POWER).duration(30s);
+	// System.sleep(sleepConfig);
+	delay(30s);
 }
 
+
+/* Main program flow above, below are helper functions */
 
 void initializeSensors()
 {
@@ -81,7 +77,7 @@ void initializeSensors()
 		delay(500);
 		Serial.println("Trying to connect BH1750 Lux Sensor");
 	}
-	bh.set_sensor_mode(BH1750::continuous_low_res);
+	bh.set_sensor_mode(BH1750::forced_mode_low_res);
 
 	while (!bme.begin())
 	{
@@ -94,14 +90,74 @@ void initializeSensors()
 		delay(500);
 		Serial.println("Trying to connect SCD30 CO2 Sensor");
 	}
+	airSensor.setMeasurementInterval(2);
 
-	aqi.begin_I2C();
+	aqi.begin_I2C();	// Particulate sensor PM2.5
 
 	Serial.println("Zio Qwiic Loudness Sensor Master Awake");
 	testForConnectivity();
 
 	uv.begin(VEML6070_1_T);
 }
+
+void getSensorReadings()
+{
+	// LUX Sensor (BH1750)
+	bh.make_forced_measurement();
+	Serial.println(String::format("Light level: %.1f lux", bh.get_light_level()));
+
+	// CO2 Sensor (SCD30)
+	if (airSensor.dataAvailable())
+	{
+		Serial.print("CO2(ppm): ");
+		Serial.print(airSensor.getCO2());
+		Serial.print(" Temperature(*C): ");
+		Serial.print(airSensor.getTemperature(), 1);
+		Serial.print(" Humidity(%): ");
+		Serial.print(airSensor.getHumidity(), 1);
+		Serial.println();
+	}
+	else
+		Serial.println("SCD30 No data");
+	
+	// Particulate Sensor (PMSA003I)
+	PM25_AQI_Data data;
+	if (!aqi.read(&data))
+	{
+		Serial.println("Could not read from AQI");
+		delay(5000); // try again in a bit!
+		return;
+	}
+	float pm10s = data.pm10_standard;
+	float pm25s = data.pm25_standard;
+	float pm100s = data.pm100_standard;
+	// float pm10e = data.pm10_env;
+	// float pm25e = data.pm25_env;
+	// float pm100e = data.pm100_env;
+
+	Serial.println(String::format("Standard PM -- PM1.0: %.2f | PM2.5: %.2f | PM10.0: %.2f", pm10s, pm25s, pm100s));
+	// Serial.println(String::format("Environmental PM -- PM1.0: %.2f| PM2.5: %.2f| PM10.0: %.2f", pm10e, pm25e, pm100e));
+
+	// Peak Sound Sensor (SPARKFUN SEN-15892)
+	getValue();
+
+	// UV Sensor (VEML 6070)
+	Serial.print("UV light level: "); Serial.println(uv.readUV());
+
+	// Pressure, Temperature, Humidity Sensor (BME280)
+	
+	// float pressure = bme.readPressure()/100.0F;
+	// float temp = bme.readTemperature();
+	// float humid = bme.readHumidity();
+	// Serial.println(String::format("Pressure: %.2f mbar | Temperature: %.2f *C | Humidity %.2f %",pressure, temp, humid));
+
+	Serial.println(String::format("Pressure: %.2f mbar",(bme.readPressure()/100.0F)));
+	Serial.print("Humidity: ");
+	Serial.print(bme.readHumidity());
+	Serial.println(" %");
+	Serial.println(String::format("Temperature: %.2f *C",bme.readTemperature()));
+}
+
 
 void getValue()
 {
@@ -139,63 +195,4 @@ void testForConnectivity()
 		Serial.println("Check connections. No slave attached.");
 		while (1);
 	}
-}
-
-
-void getSensorReadings()
-{
-	//LUX Sensor (BH1750); continuous mode takes measurements non-stop, one time mode takes a measurement then sleep
-	bh.make_forced_measurement();
-	Serial.println(String::format("Light level: %.1f lux", bh.get_light_level()));
-
-	//CO2 Sensor (SCD30)
-	if (airSensor.dataAvailable())
-	{
-		Serial.print("CO2(ppm): ");
-		Serial.print(airSensor.getCO2());
-		Serial.print(" Temperature(*C): ");
-		Serial.print(airSensor.getTemperature(), 1);
-		Serial.print(" Humidity(%): ");
-		Serial.print(airSensor.getHumidity(), 1);
-		Serial.println();
-	}
-	else
-		Serial.println("No data");
-	
-	//Particulate Sensor (PMSA003I)
-	PM25_AQI_Data data;
-	if (!aqi.read(&data))
-	{
-		Serial.println("Could not read from AQI");
-		delay(5000); // try again in a bit!
-		return;
-	}
-	float pm10s = data.pm10_standard;
-	float pm25s = data.pm25_standard;
-	float pm100s = data.pm100_standard;
-	//float pm10e = data.pm10_env;
-	//float pm25e = data.pm25_env;
-	//float pm100e = data.pm100_env;
-
-	Serial.println(String::format("Standard PM -- PM1.0: %.2f | PM2.5: %.2f | PM10.0: %.2f", pm10s, pm25s, pm100s));
-	//Serial.println(String::format("Environmental PM -- PM1.0: %.2f| PM2.5: %.2f| PM10.0: %.2f", pm10e, pm25e, pm100e));
-
-	//Peak Sound Sensor (SPARKFUN SEN-15892)
-	getValue();
-
-	// UV Sensor (VEML 6070)
-	Serial.print("UV light level: "); Serial.println(uv.readUV());
-
-	//Pressure, Temperature, Humidity Sensor (BME280)
-	
-	//float pressure = bme.readPressure()/100.0F;
-	//float temp = bme.readTemperature();
-	//float humid = bme.readHumidity();
-	//Serial.println(String::format("Pressure: %.2f mbar | Temperature: %.2f *C | Humidity %.2f %",pressure, temp, humid));
-
-	Serial.println(String::format("Pressure: %.2f mbar",(bme.readPressure()/100.0F)));
-	Serial.print("Humidity: ");
-	Serial.print(bme.readHumidity());
-	Serial.println(" %");
-	Serial.println(String::format("Temperature: %.2f *C",bme.readTemperature()));
 }
