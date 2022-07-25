@@ -8,7 +8,7 @@
 #include <SparkFun_SCD30_Arduino_Library.h>
 #include <Adafruit_PM25AQI.h>
 #include <Adafruit_VEML6070.h>
-#include <ArduinoJson.h>
+
 
 //SYSTEM_MODE(MANUAL);
 //SYSTEM_THREAD (ENABLED);
@@ -99,6 +99,7 @@ String getSensorReadings()
 	Planned JSON Structure:
 	{
 		"deviceID": xxxxxxx
+		"DateTime": xxxxxxx
 		"sensor1":
 			{
 				"Measurement1": Value1
@@ -124,7 +125,6 @@ String getSensorReadings()
 	float lux = (int)(bh.get_light_level() * 10 + 0.5);	
 		// + 0.5 for rounding off number
 	lux = (float)lux / 100;
-
 	writer.name("BH1750");
 	writer.beginObject();
 	writer.name("Light level(lux)").value(lux);
@@ -143,31 +143,38 @@ String getSensorReadings()
 	
 	// Particulate Sensor (PMSA003I)
 	PM25_AQI_Data data;
-	float pm10s = data.pm10_standard;
-	float pm25s = data.pm25_standard;
-	float pm100s = data.pm100_standard;
-
 	writer.name("PMSA003I");
 	writer.beginObject();
-	
+	writer.name("Standard PM1.0").value(data.pm10_standard);
+	writer.name("Standard PM2.5").value(data.pm25_standard);
+	writer.name("Standard PM10").value(data.pm100_standard);
+	writer.name("Environmental PM1.0").value(data.pm10_env);
+	writer.name("Environmental PM2.5").value(data.pm25_env);
+	writer.name("Environmental PM10").value(data.pm100_env);
 	writer.endObject();
 
 	// Peak Sound Sensor (SPARKFUN SEN-15892)
 	dBnumber = 0.0;
 	qwiicGetValue();
-	sensorData += String::format(",'Sound-dB':%.2f", dBnumber);
+	writer.name("PMSA003I");
+	writer.beginObject();
+	writer.name("ADC Value").value(ADC_VALUE);
+	writer.name("dB").value(dBnumber);
+	writer.endObject();
 
 	// UV Sensor (VEML 6070)
-	sensorData += String::format(",'UV':%f", uv.readUV());
-
-	sensorData += String::format(",'Pressure-mbar':%.2f,'Humidity-percent':%.2f,'Temp-C':%.2f", 
-		bme.readPressure()/100.0F, bme.readHumidity(), bme.readTemperature());
-
+	writer.name("VEML6070");
+	writer.beginObject();
+	writer.name("UV light level").value(uv.readUV());
+	writer.name("Pressure(mbar)").value(bme.readPressure()/100.0F);
+	writer.name("Humidity(%)").value(bme.readHumidity());
+	writer.name("Temperature(*C)").value(bme.readTemperature());
+	writer.endObject();
 
 	// Null terminator for end of JSON string
 	writer.endObject();
 	writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
-	return sensorData;
+	return buf;
 }
 
 

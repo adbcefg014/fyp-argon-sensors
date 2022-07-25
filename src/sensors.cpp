@@ -10,10 +10,10 @@
 #include <Adafruit_Sensor.h>
 #include <BH1750.h>	
 #include <Adafruit_BME280.h>
-#include <SparkFun_SCD30_Arduino_Library.h>	// https://github.com/sparkfun/SparkFun_SCD30_Arduino_Library
+#include <SparkFun_SCD30_Arduino_Library.h>
 #include <Adafruit_PM25AQI.h>
 #include <Adafruit_VEML6070.h>
-#include <ArduinoJson.h>
+
 
 //SYSTEM_MODE(MANUAL);
 //SYSTEM_THREAD (ENABLED);
@@ -32,12 +32,12 @@ Adafruit_VEML6070 uv = Adafruit_VEML6070();
 #define COMMAND_NOTHING_NEW 0x99
 const byte qwiicAddress = 0x30;
 uint16_t ADC_VALUE = 0;
+float dBnumber = 0.0;
 
 void initializeSensors();
-void testForConnectivity();
-void getValue();
 String getSensorReadings();
-float dBnumber;
+void qwiicTestForConnectivity();
+void qwiicGetValue();
 
 // setup() runs once, when the device is first turned on.
 void setup() {
@@ -96,51 +96,97 @@ void initializeSensors()
 	aqi.begin_I2C();	// Particulate sensor PM2.5
 
 	Serial.println("Zio Qwiic Loudness Sensor Master Awake");
-	testForConnectivity();
+	qwiicTestForConnectivity();
 
 	uv.begin(VEML6070_1_T);
 }
 
 String getSensorReadings()
 {
-	String sensorData = "{\"DateTime\"\:";
-	sensorData += String(Time.now());
-	// LUX Sensor (BH1750)
+	/*
+	Planned JSON Structure:
+	{
+		"deviceID": xxxxxxx
+		"DateTime": xxxxxxx
+		"sensor1":
+			{
+				"Measurement1": Value1
+				"Measurement2": Value2
+			}
+	}
+	*/
+
+	// Preparations for JSON string pointer
+	char buf[400];
+	memset(buf, 0, sizeof(buf));
+	JSONBufferWriter writer(buf, sizeof(buf) - 1);
+	writer.beginObject();
+
+	// Device ID as 1st data entry
+	writer.name("DeviceID").value(System.deviceID());
+
+	// DateTime data entry
+	writer.name("DateTime").value(Time.now());
+
+	// LUX Sensor (BH1750), decimal precision to .1
 	bh.make_forced_measurement();
-	sensorData += String::format("'Light-lux':%.1f", bh.get_light_level());
+	float lux = (int)(bh.get_light_level() * 10 + 0.5);	
+		// + 0.5 for rounding off number
+	lux = (float)lux / 100;
+	writer.name("BH1750");
+	writer.beginObject();
+	writer.name("Light level(lux)").value(lux);
+	writer.endObject();
 
 	// CO2 Sensor (SCD30)
 	if (airSensor.dataAvailable())
 	{
-		sensorData += String::format(",'CO2-ppm':{},'scd30Temp-C':{},'scd30Humidity-percent':{}", 
-			airSensor.getCO2(), airSensor.getTemperature(), airSensor.getHumidity());
+		writer.name("SCD30");
+		writer.beginObject();
+		writer.name("CO2(ppm)").value(airSensor.getCO2());
+		writer.name("Temperature(*C)").value(airSensor.getTemperature());
+		writer.name("Humidity(%)").value(airSensor.getHumidity());
+		writer.endObject();
 	}
-	else
-		sensorData += ",'scd30 no data'";
 	
 	// Particulate Sensor (PMSA003I)
 	PM25_AQI_Data data;
-	float pm10s = data.pm10_standard;
-	float pm25s = data.pm25_standard;
-	float pm100s = data.pm100_standard;
-
-	sensorData += String::format(",'PM1.0':{},'PM2.5':{},'PM10':{}", pm10s, pm25s, pm100s);
+	writer.name("PMSA003I");
+	writer.beginObject();
+	writer.name("Standard PM1.0").value(data.pm10_standard);
+	writer.name("Standard PM2.5").value(data.pm25_standard);
+	writer.name("Standard PM10").value(data.pm100_standard);
+	writer.name("Environmental PM1.0").value(data.pm10_env);
+	writer.name("Environmental PM2.5").value(data.pm25_env);
+	writer.name("Environmental PM10").value(data.pm100_env);
+	writer.endObject();
 
 	// Peak Sound Sensor (SPARKFUN SEN-15892)
-	getValue();
-	sensorData += String::format(",'Sound-dB':%.2f", dBnumber);
+	dBnumber = 0.0;
+	qwiicGetValue();
+	writer.name("PMSA003I");
+	writer.beginObject();
+	writer.name("ADC Value").value(ADC_VALUE);
+	writer.name("dB").value(dBnumber);
+	writer.endObject();
 
 	// UV Sensor (VEML 6070)
-	sensorData += String::format(",'UV':{}", uv.readUV());
+	writer.name("VEML6070");
+	writer.beginObject();
+	writer.name("UV light level").value(uv.readUV());
+	writer.name("Pressure(mbar)").value(bme.readPressure()/100.0F);
+	writer.name("Humidity(%)").value(bme.readHumidity());
+	writer.name("Temperature(*C)").value(bme.readTemperature());
+	writer.endObject();
 
-	sensorData += String::format(",'Pressure-mbar':%.2f,'Humidity-percent':%.2f,'Temp-C':%.2f", 
-		bme.readPressure()/100.0F, bme.readHumidity(), bme.readTemperature());
-
-	return sensorData;
+	// Null terminator for end of JSON string
+	writer.endObject();
+	writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+	return buf;
 }
 
 
-void getValue()
+void qwiicGetValue()
 {
 	Wire.beginTransmission(qwiicAddress);
 	Wire.write(COMMAND_GET_VALUE); // command for status
@@ -158,9 +204,9 @@ void getValue()
 	}
 }
 
-// testForConnectivity() checks for an ACK from an Sensor. If no ACK
+// qwiicTestForConnectivity() checks for an ACK from an Sensor. If no ACK
 // program freezes and notifies user.
-void testForConnectivity()
+void qwiicTestForConnectivity()
 {
 	Wire.beginTransmission(qwiicAddress);
 	//check here for an ACK from the slave, if no ACK don't allow change?
