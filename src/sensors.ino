@@ -8,6 +8,7 @@
 #include <SparkFun_SCD30_Arduino_Library.h>
 #include <Adafruit_PM25AQI.h>
 #include <Adafruit_VEML6070.h>
+#include <fcntl.h>
 
 
 //SYSTEM_MODE(MANUAL);
@@ -27,7 +28,7 @@ uint16_t ADC_VALUE = 0;
 float dBnumber = 0.0;
 
 void initializeSensors();
-void getSensorReadings();
+void getSensorReadings(char *dataJson);
 void qwiicTestForConnectivity();
 void qwiicGetValue();
 
@@ -51,15 +52,21 @@ void loop() {
 	}
 
 	digitalWrite(D7,HIGH);
-	getSensorReadings();
-	digitalWrite(D7,LOW);
+	char *dataJson;
+	dataJson = (char *) malloc(500);
 
+	getSensorReadings(dataJson);
+	Serial.println(dataJson);
 	Serial.println("");
+	Particle.publish("sensor_data", dataJson);
+
+	free(dataJson);
+	digitalWrite(D7,LOW);
 
 	// SystemSleepConfiguration sleepConfig;
 	// sleepConfig.mode(SystemSleepMode::ULTRA_LOW_POWER).duration(1min);
 	// System.sleep(sleepConfig);
-	delay(1min);
+	delay(65s);
 }
 
 
@@ -96,7 +103,7 @@ void initializeSensors()
 	uv.begin(VEML6070_1_T);
 }
 
-void getSensorReadings()
+void getSensorReadings(char *dataJson)
 {
 	/*
 	Planned JSON Structure:
@@ -112,11 +119,11 @@ void getSensorReadings()
 	*/
 
 	// Preparations for JSON string
-	JSONStreamWriter writer(Serial);
+	JSONBufferWriter writer(dataJson, 499);
 	writer.beginObject();
 
 	// Device ID as 1st data entry
-	writer.name("DeviceID").value(System.deviceID());
+	// writer.name("deviceID").value(System.deviceID());
 
 	// DateTime data entry
 	writer.name("DateTime").value(Time.format(Time.now(), TIME_FORMAT_ISO8601_FULL));
@@ -124,16 +131,16 @@ void getSensorReadings()
 	// LUX Sensor (BH1750), decimal precision to .1
 	bh.make_forced_measurement();
 	writer.name("BH1750").beginObject();
-		writer.name("Light_level(lux)").value(bh.get_light_level());
+		writer.name("Light-lux").value(bh.get_light_level());
 	writer.endObject();
 
 	// CO2 Sensor (SCD30)
 	if (airSensor.dataAvailable())
 	{
 		writer.name("SCD30").beginObject();
-			writer.name("CO2(ppm)").value(airSensor.getCO2());
-			writer.name("Temp(C)").value(airSensor.getTemperature());
-			writer.name("RH(%)").value(airSensor.getHumidity());
+			writer.name("CO2-ppm").value(airSensor.getCO2());
+			writer.name("Temp-C").value(airSensor.getTemperature());
+			writer.name("RH-%").value(airSensor.getHumidity());
 		writer.endObject();
 	}
 	
@@ -150,25 +157,27 @@ void getSensorReadings()
 
 	// Peak Sound Sensor (SPARKFUN SEN-15892)
 	qwiicGetValue();
-	writer.name("PMSA003I").beginObject();
-		writer.name("ADC_Value").value(ADC_VALUE);
+	writer.name("qwiic").beginObject();
+		writer.name("ADC-val").value(ADC_VALUE);
 		writer.name("dB").value(dBnumber);
 	writer.endObject();
 
 	// UV Sensor (VEML 6070)
 	writer.name("VEML6070").beginObject();
-		writer.name("UV_light_level").value(uv.readUV());
+		writer.name("UV-lvl").value(uv.readUV());
 	writer.endObject();
 
 	// Pressure, Temperature, Humidity Sensor (BME280)
 	writer.name("BME280").beginObject();
-		writer.name("Pressure(mbar)").value(bme.readPressure()/100.0F);
-		writer.name("RH(%)").value(bme.readHumidity());
-		writer.name("Temp(C)").value(bme.readTemperature());
+		writer.name("P-mbar").value(bme.readPressure()/100.0F);
+		writer.name("RH-%").value(bme.readHumidity());
+		writer.name("Temp-C").value(bme.readTemperature());
 	writer.endObject();
 
 	// End of JSON string
 	writer.endObject();
+	writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+	Serial.println(writer.dataSize());
 	return;
 }
 
