@@ -141,7 +141,7 @@ void getSensorReadings(char *dataJson)
 	JSONBufferWriter writer(dataJson, 499);
 	if (counter == 1) 
 	{
-		// Beginning of whole reading
+		// Beginning oof entire JSON
 		writer.beginObject();
 	}
 
