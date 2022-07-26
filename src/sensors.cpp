@@ -126,7 +126,7 @@ void getSensorReadings()
 		writer.name("DeviceID").value(System.deviceID());
 
 		// DateTime data entry
-		writer.name("DateTime").value(Time.format(Time.now(), "%F %T"));
+		writer.name("DateTime").value(Time.format(Time.now(), TIME_FORMAT_ISO8601_FULL));
 
 		// LUX Sensor (BH1750), decimal precision to .1
 		bh.make_forced_measurement();
