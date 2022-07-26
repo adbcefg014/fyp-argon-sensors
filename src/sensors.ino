@@ -133,7 +133,7 @@ void getSensorReadings()
 		writer.name("SCD30").beginObject();
 			writer.name("CO2(ppm)").value(airSensor.getCO2());
 			writer.name("Temp(C)").value(airSensor.getTemperature());
-			writer.name("Humidity(%)").value(airSensor.getHumidity());
+			writer.name("RH(%)").value(airSensor.getHumidity());
 		writer.endObject();
 	}
 	
@@ -158,8 +158,12 @@ void getSensorReadings()
 	// UV Sensor (VEML 6070)
 	writer.name("VEML6070").beginObject();
 		writer.name("UV_light_level").value(uv.readUV());
+	writer.endObject();
+
+	// Pressure, Temperature, Humidity Sensor (BME280)
+	writer.name("BME280").beginObject();
 		writer.name("Pressure(mbar)").value(bme.readPressure()/100.0F);
-		writer.name("Humidity(%)").value(bme.readHumidity());
+		writer.name("RH(%)").value(bme.readHumidity());
 		writer.name("Temp(C)").value(bme.readTemperature());
 	writer.endObject();
 

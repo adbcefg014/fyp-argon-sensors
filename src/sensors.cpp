@@ -131,11 +131,8 @@ void getSensorReadings()
 
 	// LUX Sensor (BH1750), decimal precision to .1
 	bh.make_forced_measurement();
-	float lux = (int)(bh.get_light_level() * 10 + 0.5);	
-		// + 0.5 for rounding off number
-	lux = (float)lux / 10;
 	writer.name("BH1750").beginObject();
-		writer.name("Light_level(lux)").value(lux);
+		writer.name("Light_level(lux)").value(bh.get_light_level());
 	writer.endObject();
 
 	// CO2 Sensor (SCD30)
@@ -143,8 +140,8 @@ void getSensorReadings()
 	{
 		writer.name("SCD30").beginObject();
 			writer.name("CO2(ppm)").value(airSensor.getCO2());
-			writer.name("Temperature(C)").value(airSensor.getTemperature());
-			writer.name("Humidity(%)").value(airSensor.getHumidity());
+			writer.name("Temp(C)").value(airSensor.getTemperature());
+			writer.name("RH(%)").value(airSensor.getHumidity());
 		writer.endObject();
 	}
 	
@@ -169,9 +166,13 @@ void getSensorReadings()
 	// UV Sensor (VEML 6070)
 	writer.name("VEML6070").beginObject();
 		writer.name("UV_light_level").value(uv.readUV());
+	writer.endObject();
+
+	// Pressure, Temperature, Humidity Sensor (BME280)
+	writer.name("BME280").beginObject();
 		writer.name("Pressure(mbar)").value(bme.readPressure()/100.0F);
-		writer.name("Humidity(%)").value(bme.readHumidity());
-		writer.name("Temperature(C)").value(bme.readTemperature());
+		writer.name("RH(%)").value(bme.readHumidity());
+		writer.name("Temp(C)").value(bme.readTemperature());
 	writer.endObject();
 
 	// End of JSON string
