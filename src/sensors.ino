@@ -26,6 +26,9 @@ Adafruit_VEML6070 uv = Adafruit_VEML6070();
 const byte qwiicAddress = 0x30;
 uint16_t ADC_VALUE = 0;
 float dBnumber = 0.0;
+int READINGSNO = 3;
+int counter = 0;
+String dataBuffer = "";
 
 void initializeSensors();
 void getSensorReadings(char *dataJson);
@@ -54,12 +57,19 @@ void loop() {
 	digitalWrite(D7,HIGH);
 	char *dataJson;
 	dataJson = (char *) malloc(500);
+	counter++;
 
 	getSensorReadings(dataJson);
-	Serial.println(dataJson);
+	dataBuffer += dataJson;
+	Serial.println(dataBuffer);
 	Serial.println("");
-	Particle.publish("sensor_data", dataJson);
 
+	if (counter == READINGSNO)
+	{
+		Particle.publish("sensor_data", dataBuffer);
+		counter = 0;
+		dataBuffer = "";
+	}
 	free(dataJson);
 	digitalWrite(D7,LOW);
 
@@ -108,25 +118,27 @@ void getSensorReadings(char *dataJson)
 	/*
 	Planned JSON Structure:
 	{
-		"DeviceID": xxxxxxx
-		"DateTime": xxxxxxx
-		"Sensor1":
+		"DateTime": 
+		{
+			"Sensor1":
 			{
 				"Measurement1": Value1
 				"Measurement2": Value2
 			}
+		}
 	}
 	*/
 
 	// Preparations for JSON string
 	JSONBufferWriter writer(dataJson, 499);
-	writer.beginObject();
-
-	// Device ID as 1st data entry
-	// writer.name("deviceID").value(System.deviceID());
+	if (counter == 1) 
+	{
+		// Beginning oof entire JSON
+		writer.beginObject();
+	}
 
 	// DateTime data entry
-	writer.name("DateTime").value(Time.format(Time.now(), TIME_FORMAT_ISO8601_FULL));
+	writer.name(Time.format(Time.now(), TIME_FORMAT_ISO8601_FULL)).beginObject();
 
 	// LUX Sensor (BH1750), decimal precision to .1
 	bh.make_forced_measurement();
@@ -176,6 +188,10 @@ void getSensorReadings(char *dataJson)
 
 	// End of JSON string
 	writer.endObject();
+	if (counter == READINGSNO)
+	{
+		writer.endObject();
+	}
 	writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
 	Serial.println(writer.dataSize());
 	return;
