@@ -35,7 +35,7 @@ uint16_t ADC_VALUE = 0;
 float dBnumber = 0.0;
 
 void initializeSensors();
-void getSensorReadings(char* charPtr);
+void getSensorReadings();
 void qwiicTestForConnectivity();
 void qwiicGetValue();
 
@@ -59,13 +59,10 @@ void loop() {
 	}
 
 	digitalWrite(D7,HIGH);
-	char * charPtr = new char[500];
-	getSensorReadings(charPtr);
-
-	// Particle.publish("sensor-reading", charPtr);
-	Serial.write(charPtr);
-	delete[] charPtr;
+	getSensorReadings();
 	digitalWrite(D7,LOW);
+
+	Serial.println("");
 
 	// SystemSleepConfiguration sleepConfig;
 	// sleepConfig.mode(SystemSleepMode::ULTRA_LOW_POWER).duration(1min);
@@ -106,7 +103,7 @@ void initializeSensors()
 	uv.begin(VEML6070_1_T);
 }
 
-void getSensorReadings(char* charPtr)
+void getSensorReadings()
 {
 	/*
 	Planned JSON Structure:
@@ -122,14 +119,14 @@ void getSensorReadings(char* charPtr)
 	*/
 
 	// Preparations for JSON string
-	JSONBufferWriter writer(charPtr, sizeof(charPtr) - 1);
+	JSONStreamWriter writer(Serial);
 	writer.beginObject();
 
 		// Device ID as 1st data entry
 		writer.name("DeviceID").value(System.deviceID());
 
 		// DateTime data entry
-		writer.name("DateTime").value(Time.now());
+		writer.name("DateTime").value(Time.format(Time.now(), "%F %T"));
 
 		// LUX Sensor (BH1750), decimal precision to .1
 		bh.make_forced_measurement();
@@ -178,7 +175,6 @@ void getSensorReadings(char* charPtr)
 
 	// End of JSON string
 	writer.endObject();
-	writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
 	return;
 }
 
