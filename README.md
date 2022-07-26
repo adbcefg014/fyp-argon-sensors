@@ -1,8 +1,11 @@
 # sensors
 
 NTU FYP project by Johnson Wong Teng Fung 
+
 Proj No:	        C177
+
 Title:	            Study of Wireless Sensor Hardware for Internet of Things Facility Management (IoT-FM) Environment Sensing
+
 Main Supervisor:	Asst Prof Li King Ho, Holden
 
 ## Welcome to your project!
