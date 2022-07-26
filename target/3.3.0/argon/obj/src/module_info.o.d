@@ -1,4 +1,4 @@
-d\:/JSN/Desktop/repos/c53-iot/sensors/target/3.3.0/argon//obj/./src/module_info.o: \
+d\:/JSN/Desktop/repos/c177-iot/sensors/target/3.3.0/argon//obj/./src/module_info.o: \
  src/module_info.c ../../../dynalib/inc/module_info.inc \
  ../../../dynalib/inc/module_info.h ../../../services/inc/static_assert.h \
  c\:\users\jsn\.particle\toolchains\gcc-arm\10.2.1\arm-none-eabi\include\assert.h \

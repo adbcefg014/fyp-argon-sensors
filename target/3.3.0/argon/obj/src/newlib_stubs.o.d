@@ -1,4 +1,4 @@
-d\:/JSN/Desktop/repos/c53-iot/sensors/target/3.3.0/argon//obj/./src/newlib_stubs.o: \
+d\:/JSN/Desktop/repos/c177-iot/sensors/target/3.3.0/argon//obj/./src/newlib_stubs.o: \
  src/newlib_stubs.cpp \
  ../../../modules/shared/nRF52840/inc/user-part/newlib_stubs.inc \
  c\:\users\jsn\.particle\toolchains\gcc-arm\10.2.1\arm-none-eabi\include\sys\types.h \

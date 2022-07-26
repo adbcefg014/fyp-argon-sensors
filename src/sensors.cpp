@@ -2,7 +2,7 @@
 //       THIS IS A GENERATED FILE - DO NOT EDIT       //
 /******************************************************/
 
-#line 1 "d:/JSN/Desktop/repos/c53-iot/sensors/src/sensors.ino"
+#line 1 "d:/JSN/Desktop/repos/c177-iot/sensors/src/sensors.ino"
 // Code for all one complete sensor node
 #include <Particle.h>
 #include <Arduino.h>
@@ -20,7 +20,7 @@
 
 void setup();
 void loop();
-#line 16 "d:/JSN/Desktop/repos/c53-iot/sensors/src/sensors.ino"
+#line 16 "d:/JSN/Desktop/repos/c177-iot/sensors/src/sensors.ino"
 BH1750 bh;
 #define SEALEVELPRESSURE_HPA (1013.25)
 #define BME_ADDRESS 0x77
@@ -93,12 +93,13 @@ void initializeSensors()
 		delay(500);
 		Serial.println("Trying to connect SCD30 CO2 Sensor");
 	}
-	airSensor.setMeasurementInterval(2);
+	airSensor.setMeasurementInterval(60);
+  	airSensor.setAutoSelfCalibration(true);
 
 	aqi.begin_I2C();	// Particulate sensor PM2.5
 
-	Serial.println("Zio Qwiic Loudness Sensor Master Awake");
 	qwiicTestForConnectivity();
+	Serial.println("Zio Qwiic Loudness Sensor Master Awake");
 
 	uv.begin(VEML6070_1_T);
 }
@@ -122,56 +123,56 @@ void getSensorReadings()
 	JSONStreamWriter writer(Serial);
 	writer.beginObject();
 
-		// Device ID as 1st data entry
-		writer.name("DeviceID").value(System.deviceID());
+	// Device ID as 1st data entry
+	writer.name("DeviceID").value(System.deviceID());
 
-		// DateTime data entry
-		writer.name("DateTime").value(Time.format(Time.now(), TIME_FORMAT_ISO8601_FULL));
+	// DateTime data entry
+	writer.name("DateTime").value(Time.format(Time.now(), TIME_FORMAT_ISO8601_FULL));
 
-		// LUX Sensor (BH1750), decimal precision to .1
-		bh.make_forced_measurement();
-		float lux = (int)(bh.get_light_level() * 10 + 0.5);	
-			// + 0.5 for rounding off number
-		lux = (float)lux / 10;
-		writer.name("BH1750").beginObject();
-			writer.name("Light_level(lux)").value(lux);
+	// LUX Sensor (BH1750), decimal precision to .1
+	bh.make_forced_measurement();
+	float lux = (int)(bh.get_light_level() * 10 + 0.5);	
+		// + 0.5 for rounding off number
+	lux = (float)lux / 10;
+	writer.name("BH1750").beginObject();
+		writer.name("Light_level(lux)").value(lux);
+	writer.endObject();
+
+	// CO2 Sensor (SCD30)
+	if (airSensor.dataAvailable())
+	{
+		writer.name("SCD30").beginObject();
+			writer.name("CO2(ppm)").value(airSensor.getCO2());
+			writer.name("Temperature(C)").value(airSensor.getTemperature());
+			writer.name("Humidity(%)").value(airSensor.getHumidity());
 		writer.endObject();
+	}
+	
+	// Particulate Sensor (PMSA003I)
+	PM25_AQI_Data data;
+	writer.name("PMSA003I").beginObject();
+		writer.name("Std_PM1.0").value(data.pm10_standard);
+		writer.name("Std_PM2.5").value(data.pm25_standard);
+		writer.name("Std_PM10").value(data.pm100_standard);
+		writer.name("Env_PM1.0").value(data.pm10_env);
+		writer.name("Env_PM2.5").value(data.pm25_env);
+		writer.name("Env_PM10").value(data.pm100_env);
+	writer.endObject();
 
-		// CO2 Sensor (SCD30)
-		if (airSensor.dataAvailable())
-		{
-			writer.name("SCD30").beginObject();
-				writer.name("CO2(ppm)").value(airSensor.getCO2());
-				writer.name("Temperature(C)").value(airSensor.getTemperature());
-				writer.name("Humidity(%)").value(airSensor.getHumidity());
-			writer.endObject();
-		}
-		
-		// Particulate Sensor (PMSA003I)
-		PM25_AQI_Data data;
-		writer.name("PMSA003I").beginObject();
-			writer.name("Standard_PM1.0").value(data.pm10_standard);
-			writer.name("Standard_PM2.5").value(data.pm25_standard);
-			writer.name("Standard_PM10").value(data.pm100_standard);
-			writer.name("Environmental_PM1.0").value(data.pm10_env);
-			writer.name("Environmental_PM2.5").value(data.pm25_env);
-			writer.name("Environmental_PM10").value(data.pm100_env);
-		writer.endObject();
+	// Peak Sound Sensor (SPARKFUN SEN-15892)
+	qwiicGetValue();
+	writer.name("PMSA003I").beginObject();
+		writer.name("ADC_Value").value(ADC_VALUE);
+		writer.name("dB").value(dBnumber);
+	writer.endObject();
 
-		// Peak Sound Sensor (SPARKFUN SEN-15892)
-		qwiicGetValue();
-		writer.name("PMSA003I").beginObject();
-			writer.name("ADC_Value").value(ADC_VALUE);
-			writer.name("dB").value(dBnumber);
-		writer.endObject();
-
-		// UV Sensor (VEML 6070)
-		writer.name("VEML6070").beginObject();
-			writer.name("UV_light_level").value(uv.readUV());
-			writer.name("Pressure(mbar)").value(bme.readPressure()/100.0F);
-			writer.name("Humidity(%)").value(bme.readHumidity());
-			writer.name("Temperature(C)").value(bme.readTemperature());
-		writer.endObject();
+	// UV Sensor (VEML 6070)
+	writer.name("VEML6070").beginObject();
+		writer.name("UV_light_level").value(uv.readUV());
+		writer.name("Pressure(mbar)").value(bme.readPressure()/100.0F);
+		writer.name("Humidity(%)").value(bme.readHumidity());
+		writer.name("Temperature(C)").value(bme.readTemperature());
+	writer.endObject();
 
 	// End of JSON string
 	writer.endObject();
