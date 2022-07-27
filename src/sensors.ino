@@ -10,8 +10,8 @@
 #include <Adafruit_VEML6070.h>
 
 
-//SYSTEM_MODE(MANUAL);
-//SYSTEM_THREAD (ENABLED);
+SYSTEM_MODE(SEMI_AUTOMATIC);
+SYSTEM_THREAD (ENABLED);
 
 BH1750 bh;
 #define SEALEVELPRESSURE_HPA (1013.25)
@@ -23,49 +23,93 @@ Adafruit_VEML6070 uv = Adafruit_VEML6070();
 #define COMMAND_GET_VALUE 0x05
 #define COMMAND_NOTHING_NEW 0x99
 const byte qwiicAddress = 0x30;
+#define ONE_DAY_MILLIS (24 * 60 * 60 * 1000)
 uint16_t ADC_VALUE = 0;
 float dBnumber = 0.0;
+unsigned long sensorInterval = 30000;
+time_t timeNow;
 
 void initializeSensors();
-void getSensorReadings(char *dataJson);
+JSONBufferWriter getSensorReadings(JSONBufferWriter writerJson);
 void qwiicTestForConnectivity();
 void qwiicGetValue();
+void goSleep();
+void syncClock();
 
 // setup() runs once, when the device is first turned on.
 void setup() {
-
-	// Put initialization like pinMode and begin functions here.
-	Wire.begin();
+	Particle.connect();
 	pinMode(D7,OUTPUT);
-	Serial.begin(9600);
-
+	Wire.begin();
+	Serial.begin();
 	initializeSensors();
+
+	// Cloud sync initialization
+	waitUntil(Particle.connected);
+	Particle.setDisconnectOptions(CloudDisconnectOptions().graceful(true).timeout(5s));
+	syncClock();
+
+	// Turn off connectivity
+	Particle.disconnect();
+	waitUntil(Particle.disconnected);
+	WiFi.off();
+	delay(5s);
 }
 
-
-// loop() runs over and over again, as quickly as it can execute.
 void loop() {
-	// The core of your code will likely live here.
-	if (Particle.connected() == false) {
-		Particle.connect();
+	// Start of JSON string
+	char *dataJson = (char *) malloc(1100);
+	JSONBufferWriter writerJson(dataJson, 1099);
+	writerJson.beginObject();
+	writerJson.name("deviceID").value(System.deviceID());
+	for (int collateCount = 0; collateCount < 3; collateCount++){
+		// Sleep between sensor readings
+		if (collateCount != 0) goSleep();
+
+		// Collate readings into 1 JSON string
+		digitalWrite(D7,HIGH);
+		timeNow = Time.now();
+		writerJson.name(Time.format(timeNow, TIME_FORMAT_ISO8601_FULL)).beginObject();
+		writerJson = getSensorReadings(writerJson);
+		writerJson.endObject();
+		digitalWrite(D7,LOW);
+		Serial.println("Take Reading");
 	}
 
-	digitalWrite(D7,HIGH);
-	char *dataJson;
-	dataJson = (char *) malloc(500);
+	// End of JSON string
+	writerJson.endObject();
+	writerJson.buffer()[std::min(writerJson.bufferSize(), writerJson.dataSize())] = 0;
 
-	getSensorReadings(dataJson);
+	// Wake up connectivity
+	digitalWrite(D7,HIGH);
+	WiFi.on();
+	Serial.println("wifi on");
+	Particle.connect();
+	waitUntil(Particle.connected);
+	Serial.println("particle connected");
+
+	// Publish collated JSON string
+	Serial.println("Collated:");
+	Serial.println(writerJson.dataSize());
 	Serial.println(dataJson);
 	Serial.println("");
-	Particle.publish("sensor_data", dataJson);
+	if (!Particle.connected()) Particle.connect();
+	waitUntil(Particle.connected);
+	Particle.publish("sensor-readings", dataJson);
 
-	free(dataJson);
+	// Sync device clock daily
+  	syncClock();
+
+	// Shut down connectivity
+	Particle.disconnect();
+	waitUntil(Particle.disconnected);
+	WiFi.off();
 	digitalWrite(D7,LOW);
 
-	// SystemSleepConfiguration sleepConfig;
-	// sleepConfig.mode(SystemSleepMode::ULTRA_LOW_POWER).duration(1min);
-	// System.sleep(sleepConfig);
-	delay(65s);
+	// Sleep until next sensor reading
+	free(dataJson);
+	goSleep();
+	
 }
 
 
@@ -91,7 +135,7 @@ void initializeSensors()
 		delay(500);
 		Serial.println("Trying to connect SCD30 CO2 Sensor");
 	}
-	airSensor.setMeasurementInterval(60);
+	airSensor.setMeasurementInterval(25);
   	airSensor.setAutoSelfCalibration(true);
 
 	aqi.begin_I2C();	// Particulate sensor PM2.5
@@ -102,82 +146,70 @@ void initializeSensors()
 	uv.begin(VEML6070_1_T);
 }
 
-void getSensorReadings(char *dataJson)
+JSONBufferWriter getSensorReadings(JSONBufferWriter writerJson)
 {
 	/*
 	Planned JSON Structure:
 	{
-		"DeviceID": xxxxxxx
-		"DateTime": xxxxxxx
-		"Sensor1":
+		"deviceID": xxxxxxx
+		"DateTime1": 
+		{
+			"Sensor1":
 			{
 				"Measurement1": Value1
 				"Measurement2": Value2
 			}
+		}
 	}
 	*/
 
-	// Preparations for JSON string
-	JSONBufferWriter writer(dataJson, 499);
-	writer.beginObject();
-
-	// Device ID as 1st data entry
-	writer.name("deviceID").value(System.deviceID());
-
-	// DateTime data entry
-	writer.name("DateTime").value(Time.format(Time.now(), TIME_FORMAT_ISO8601_FULL));
-
-	// LUX Sensor (BH1750), decimal precision to .1
+	// LUX Sensor (BH1750)
 	bh.make_forced_measurement();
-	writer.name("BH1750").beginObject();
-		writer.name("Light-lux").value(bh.get_light_level());
-	writer.endObject();
+	writerJson.name("BH1750").beginObject();
+	writerJson.name("lux").value(bh.get_light_level());
+	writerJson.endObject();
 
 	// CO2 Sensor (SCD30)
-	if (airSensor.dataAvailable())
-	{
-		writer.name("SCD30").beginObject();
-			writer.name("CO2-ppm").value(airSensor.getCO2());
-			writer.name("Temp-C").value(airSensor.getTemperature());
-			writer.name("RH-%").value(airSensor.getHumidity());
-		writer.endObject();
+	if (airSensor.dataAvailable()) delay(500);
+	if (airSensor.dataAvailable()) {
+		writerJson.name("SCD30").beginObject();
+		writerJson.name("CO2-ppm").value(airSensor.getCO2());
+		writerJson.name("TempC").value(airSensor.getTemperature());
+		writerJson.name("RH%").value(airSensor.getHumidity());
+		writerJson.endObject();
 	}
 	
 	// Particulate Sensor (PMSA003I)
 	PM25_AQI_Data data;
-	writer.name("PMSA003I").beginObject();
-		writer.name("Std_PM1.0").value(data.pm10_standard);
-		writer.name("Std_PM2.5").value(data.pm25_standard);
-		writer.name("Std_PM10").value(data.pm100_standard);
-		writer.name("Env_PM1.0").value(data.pm10_env);
-		writer.name("Env_PM2.5").value(data.pm25_env);
-		writer.name("Env_PM10").value(data.pm100_env);
-	writer.endObject();
+	writerJson.name("PMSA003I").beginObject();
+	writerJson.name("StdPM1.0").value(data.pm10_standard);
+	writerJson.name("StdPM2.5").value(data.pm25_standard);
+	writerJson.name("StdPM10").value(data.pm100_standard);
+	writerJson.name("EnvPM1.0").value(data.pm10_env);
+	writerJson.name("EnvPM2.5").value(data.pm25_env);
+	writerJson.name("EnvPM10").value(data.pm100_env);
+	writerJson.endObject();
 
 	// Peak Sound Sensor (SPARKFUN SEN-15892)
 	qwiicGetValue();
-	writer.name("qwiic").beginObject();
-		writer.name("ADC-val").value(ADC_VALUE);
-		writer.name("dB").value(dBnumber);
-	writer.endObject();
+	writerJson.name("qwiic").beginObject();
+	writerJson.name("ADC").value(ADC_VALUE);
+	writerJson.name("dB").value(dBnumber);
+	writerJson.endObject();
 
 	// UV Sensor (VEML 6070)
-	writer.name("VEML6070").beginObject();
-		writer.name("UV-lvl").value(uv.readUV());
-	writer.endObject();
+	writerJson.name("VEML6070").beginObject();
+	writerJson.name("UV").value(uv.readUV());
+	writerJson.endObject();
 
 	// Pressure, Temperature, Humidity Sensor (BME280)
-	writer.name("BME280").beginObject();
-		writer.name("P-mbar").value(bme.readPressure()/100.0F);
-		writer.name("RH-%").value(bme.readHumidity());
-		writer.name("Temp-C").value(bme.readTemperature());
-	writer.endObject();
+	writerJson.name("BME280").beginObject();
+	writerJson.name("P-mbar").value(bme.readPressure()/100.0F);
+	writerJson.name("RH%").value(bme.readHumidity());
+	writerJson.name("TempC").value(bme.readTemperature());
+	writerJson.endObject();
 
-	// End of JSON string
-	writer.endObject();
-	writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
-	Serial.println(writer.dataSize());
-	return;
+	return writerJson;
 }
 
 
@@ -210,6 +242,25 @@ void qwiicTestForConnectivity()
 	{
 		Serial.println("Check connections. No slave attached.");
 		while (1);
+	}
+	return;
+}
+
+void goSleep()
+{
+	// SystemSleepConfiguration sleepConfig;
+	// sleepConfig.mode(SystemSleepMode::ULTRA_LOW_POWER).duration(1min);
+	// System.sleep(sleepConfig);
+	delay(sensorInterval);
+	return;
+}
+
+void syncClock()
+{
+	unsigned long lastSync = Particle.timeSyncedLast();
+	if (millis() - lastSync > ONE_DAY_MILLIS){
+		Particle.syncTime();
+		waitUntil(Particle.syncTimeDone);
 	}
 	return;
 }
